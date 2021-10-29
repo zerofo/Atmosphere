@@ -5,7 +5,18 @@ endif
 include $(DEVKITPRO)/devkitA64/base_tools
 
 TOPTARGETS := all clean dist-no-debug dist
-AMSBRANCH := $(shell git symbolic-ref --short HEAD)
+AMSBRANCH_tmp := $(shell git symbolic-ref --short HEAD)
+char_str = heads/
+none =
+ifeq ($(findstring $(char_str), $(AMSBRANCH_tmp)),$(char_str))
+$(info "found")
+AMSBRANCH=$(strip $(subst $(char_str),$(none),$(AMSBRANCH_tmp)))
+$(info $(AMSBRANCH))
+else
+AMSBRANCH=$(AMSBRANCH_tmp)
+$(info "not found")
+endif
+
 AMSHASH := $(shell git rev-parse --short HEAD)
 AMSREV := $(AMSBRANCH)-$(AMSHASH)
 

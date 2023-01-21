@@ -29,7 +29,7 @@ jobs:
             seperator: /
             msg: ${{ github.repository }}
         - name: Checkout
-          uses: actions/checkout@v2
+          uses: actions/checkout@v3
           with:
             ref: master
             submodules: recursive
@@ -38,10 +38,10 @@ jobs:
           env:
               SKIP_LOGIN: true
         - run: | 
-               docker run -t --rm --name builder -v `pwd`:`pwd` -w `pwd` zerofo/ns_dev:0.9b make -j4
+               docker run -t --rm --name builder -v `pwd`:`pwd` -w `pwd` zerofo/ns_dev:0.9b make all -j4
                
         - name: Upload file
-          uses: actions/upload-artifact@v2
+          uses: actions/upload-artifact@v3
           with:
             path: ./out/*zip
         - name: Upload binaries to release

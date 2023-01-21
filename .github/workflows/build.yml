@@ -40,7 +40,7 @@ jobs:
         - run: | 
                git clone https://github.com/Atmosphere-NX/Atmosphere Atmosphere-tmp
                cp -rf Atmosphere-tmp/.git .
-               docker run -t --rm --name builder -v `pwd`:`pwd` -w `pwd` zerofo/ns_dev:0.9b ATMOSPHERE_GIT_HASH="0xbf66e40a7b739bb15fb80a3607e443b0616f91de" make all -j4 
+               docker run -t --rm --name builder -v `pwd`:`pwd` -w `pwd` zerofo/ns_dev:0.9b  make all -j4 
                
         - name: Upload file
           uses: actions/upload-artifact@v3

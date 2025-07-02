@@ -98,6 +98,7 @@ namespace ams::ncm {
         static const SystemProgramId Pgl;
         static const SystemProgramId Omm;
         static const SystemProgramId Eth;
+        static const SystemProgramId Ngc;
 
         static const SystemProgramId End;
 
@@ -120,13 +121,15 @@ namespace ams::ncm {
 
         static const AtmosphereProgramId Mitm;
         static const AtmosphereProgramId AtmosphereLogManager;
+        static const AtmosphereProgramId AtmosphereMemlet;
     };
 
     inline constexpr const AtmosphereProgramId AtmosphereProgramId::Mitm = { 0x010041544D530000ul };
     inline constexpr const AtmosphereProgramId AtmosphereProgramId::AtmosphereLogManager = { 0x0100000000000420ul };
+    inline constexpr const AtmosphereProgramId AtmosphereProgramId::AtmosphereMemlet = { 0x0100000000000421ul };
 
     inline constexpr bool IsAtmosphereProgramId(const ProgramId &program_id) {
-        return program_id == AtmosphereProgramId::Mitm || program_id == AtmosphereProgramId::AtmosphereLogManager;
+        return program_id == AtmosphereProgramId::Mitm || program_id == AtmosphereProgramId::AtmosphereLogManager || program_id == AtmosphereProgramId::AtmosphereMemlet;
     }
 
     inline constexpr bool IsSystemProgramId(const AtmosphereProgramId &) {
@@ -205,6 +208,7 @@ namespace ams::ncm {
     inline constexpr const SystemProgramId SystemProgramId::Pgl         = { 0x0100000000000042ul };
     inline constexpr const SystemProgramId SystemProgramId::Omm         = { 0x0100000000000045ul };
     inline constexpr const SystemProgramId SystemProgramId::Eth         = { 0x0100000000000046ul };
+    inline constexpr const SystemProgramId SystemProgramId::Ngc         = { 0x0100000000000050ul };
 
     inline constexpr const SystemProgramId SystemProgramId::End   = { 0x01000000000007FFul };
 

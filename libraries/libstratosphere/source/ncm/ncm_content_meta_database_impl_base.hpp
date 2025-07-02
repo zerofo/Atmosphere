@@ -66,7 +66,7 @@ namespace ams::ncm {
             virtual Result HasAll(sf::Out<bool> out, const sf::InArray<ContentMetaKey> &keys) = 0;
             virtual Result GetSize(sf::Out<u64> out_size, const ContentMetaKey &key) = 0;
             virtual Result GetRequiredSystemVersion(sf::Out<u32> out_version, const ContentMetaKey &key) = 0;
-            virtual Result GetPatchId(sf::Out<PatchId> out_patch_id, const ContentMetaKey &key) = 0;
+            virtual Result GetPatchContentMetaId(sf::Out<u64> out_patch_id, const ContentMetaKey &key) = 0;
             virtual Result DisableForcibly() = 0;
             virtual Result LookupOrphanContent(const sf::OutArray<bool> &out_orphaned, const sf::InArray<ContentId> &content_ids) = 0;
             virtual Result Commit() = 0;
@@ -80,6 +80,8 @@ namespace ams::ncm {
             virtual Result GetContentAccessibilities(sf::Out<u8> out_accessibilities, const ContentMetaKey &key) = 0;
             virtual Result GetContentInfoByType(sf::Out<ContentInfo> out_content_info, const ContentMetaKey &key, ContentType type) = 0;
             virtual Result GetContentInfoByTypeAndIdOffset(sf::Out<ContentInfo> out_content_info, const ContentMetaKey &key, ContentType type, u8 id_offset) = 0;
+            virtual Result GetPlatform(sf::Out<ncm::ContentMetaPlatform> out, const ContentMetaKey &key) = 0;
+            virtual Result HasAttributes(sf::Out<u8> out, u8 attr_mask) = 0;
     };
     static_assert(ncm::IsIContentMetaDatabase<ContentMetaDatabaseImplBase>);
 

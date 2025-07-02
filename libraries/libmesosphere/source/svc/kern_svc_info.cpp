@@ -106,6 +106,9 @@ namespace ams::kern::svc {
                         *out = 0;
                     }
                     break;
+                case ams::svc::InfoType_AliasRegionExtraSize:
+                    *out = process->GetPageTable().GetAliasRegionExtraSize();
+                    break;
                 MESOSPHERE_UNREACHABLE_DEFAULT_CASE();
             }
 
@@ -134,6 +137,7 @@ namespace ams::kern::svc {
                 case ams::svc::InfoType_UsedNonSystemMemorySize:
                 case ams::svc::InfoType_IsApplication:
                 case ams::svc::InfoType_FreeThreadCount:
+                case ams::svc::InfoType_AliasRegionExtraSize:
                     {
                         /* These info types don't support non-zero subtypes. */
                         R_UNLESS(info_subtype == 0,  svc::ResultInvalidCombination());
@@ -295,6 +299,32 @@ namespace ams::kern::svc {
 
                         /* Get whether the svc is permitted. */
                         *out = GetCurrentProcess().IsPermittedSvc(static_cast<svc::SvcId>(info_subtype));
+                    }
+                    break;
+                case ams::svc::InfoType_IoRegionHint:
+                    {
+                        /* Verify the sub-type is valid. */
+                        R_UNLESS(info_subtype == 0, svc::ResultInvalidCombination());
+
+                        /* Get the io region from its handle. */
+                        KScopedAutoObject io_region = GetCurrentProcess().GetHandleTable().GetObject<KIoRegion>(handle);
+                        R_UNLESS(io_region.IsNotNull(), svc::ResultInvalidHandle());
+
+                        /* Get the io region's address hint. */
+                        *out = io_region->GetHint();
+                    }
+                    break;
+                case ams::svc::InfoType_TransferMemoryHint:
+                    {
+                        /* Verify the sub-type is valid. */
+                        R_UNLESS(info_subtype == 0, svc::ResultInvalidCombination());
+
+                        /* Get the transfer memory from its handle. */
+                        KScopedAutoObject transfer_memory = GetCurrentProcess().GetHandleTable().GetObject<KTransferMemory>(handle);
+                        R_UNLESS(transfer_memory.IsNotNull(), svc::ResultInvalidHandle());
+
+                        /* Get the transfer memory's address hint. */
+                        *out = transfer_memory->GetHint();
                     }
                     break;
                 case ams::svc::InfoType_MesosphereMeta:

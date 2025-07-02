@@ -50,7 +50,7 @@ namespace ams::ncm {
             virtual Result HasAll(sf::Out<bool> out, const sf::InArray<ContentMetaKey> &keys) override;
             virtual Result GetSize(sf::Out<u64> out_size, const ContentMetaKey &key) override;
             virtual Result GetRequiredSystemVersion(sf::Out<u32> out_version, const ContentMetaKey &key) override;
-            virtual Result GetPatchId(sf::Out<PatchId> out_patch_id, const ContentMetaKey &key) override;
+            virtual Result GetPatchContentMetaId(sf::Out<u64> out_patch_id, const ContentMetaKey &key) override;
             virtual Result DisableForcibly() override;
             virtual Result LookupOrphanContent(const sf::OutArray<bool> &out_orphaned, const sf::InArray<ContentId> &content_ids) override;
             virtual Result Commit() override;
@@ -64,6 +64,8 @@ namespace ams::ncm {
             virtual Result GetContentAccessibilities(sf::Out<u8> out_accessibilities, const ContentMetaKey &key) override;
             virtual Result GetContentInfoByType(sf::Out<ContentInfo> out_content_info, const ContentMetaKey &key, ContentType type) override;
             virtual Result GetContentInfoByTypeAndIdOffset(sf::Out<ContentInfo> out_content_info, const ContentMetaKey &key, ContentType type, u8 id_offset) override;
+            virtual Result GetPlatform(sf::Out<ncm::ContentMetaPlatform> out, const ContentMetaKey &key) override;
+            virtual Result HasAttributes(sf::Out<u8> out, u8 attr_mask) override;
     };
 
 }

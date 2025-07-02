@@ -16,12 +16,291 @@
 #include <stratosphere.hpp>
 #include "../amsmitm_fs_utils.hpp"
 #include "fsmitm_romfs.hpp"
+#include "fsmitm_layered_romfs_storage.hpp"
+#include "memlet/memlet.h"
 
 namespace ams::mitm::fs {
 
     using namespace ams::fs;
 
     namespace romfs {
+
+        namespace {
+
+            constexpr size_t MaximumRomfsBuildAppletMemorySize = 32_MB;
+
+            struct ApplicationWithDynamicHeapInfo {
+                ncm::ProgramId program_id;
+                size_t dynamic_app_heap_size;
+                size_t dynamic_system_heap_size;
+            };
+
+            constexpr const ApplicationWithDynamicHeapInfo ApplicationsWithDynamicHeap[] = {
+                /* Animal Crossing: New Horizons. */
+                /* Requirement ~24 MB. */
+                /* No particular heap sensitivity. */
+                { 0x01006F8002326000,  16_MB, 0_MB },
+
+                /* Fire Emblem: Engage. */
+                /* Requirement ~32+ MB. */
+                /* No particular heap sensitivity. */
+                { 0x0100A6301214E000,  20_MB, 0_MB },
+
+                /* The Legend of Zelda: Tears of the Kingdom. */
+                /* Requirement ~48 MB. */
+                /* Game is highly sensitive to memory stolen from application heap. */
+                /* 1.0.0 tolerates no more than 16 MB stolen. 1.1.0 no more than 12 MB. */
+                { 0x0100F2C0115B6000,  10_MB, 8_MB },
+            };
+
+            constexpr size_t GetDynamicAppHeapSize(ncm::ProgramId program_id) {
+                for (const auto &info : ApplicationsWithDynamicHeap) {
+                    if (info.program_id == program_id) {
+                        return info.dynamic_app_heap_size;
+                    }
+                }
+
+                return 0;
+            }
+
+            constexpr size_t GetDynamicSysHeapSize(ncm::ProgramId program_id) {
+                for (const auto &info : ApplicationsWithDynamicHeap) {
+                    if (info.program_id == program_id) {
+                        return info.dynamic_system_heap_size;
+                    }
+                }
+
+                return 0;
+            }
+
+            template<auto MapImpl, auto UnmapImpl>
+            struct DynamicHeap {
+                uintptr_t heap_address{};
+                size_t heap_size{};
+                size_t outstanding_allocations{};
+                util::TypedStorage<mem::StandardAllocator> heap{};
+                os::SdkMutex release_heap_lock{};
+
+                constexpr DynamicHeap() = default;
+
+                void Map() {
+                    if (this->heap_address == 0) {
+                        /* NOTE: Lock not necessary, because this is the only location which do 0 -> non-zero. */
+
+                        R_ABORT_UNLESS(MapImpl(std::addressof(this->heap_address), this->heap_size));
+                        AMS_ABORT_UNLESS(this->heap_address != 0 || this->heap_size == 0);
+
+                        /* Create heap. */
+                        if (this->heap_size > 0) {
+                            util::ConstructAt(this->heap, reinterpret_cast<void *>(this->heap_address), this->heap_size);
+                        }
+                    }
+                }
+
+                void TryRelease() {
+                    if (this->outstanding_allocations == 0) {
+                        std::scoped_lock lk(this->release_heap_lock);
+
+                        if (this->heap_address != 0) {
+                            util::DestroyAt(this->heap);
+                            this->heap = {};
+
+                            R_ABORT_UNLESS(UnmapImpl(this->heap_address, this->heap_size));
+
+                            this->heap_address = 0;
+                        }
+                    }
+                }
+
+                void *Allocate(size_t size) {
+                    void * const ret = util::GetReference(this->heap).Allocate(size);
+                    if (AMS_LIKELY(ret != nullptr)) {
+                        ++this->outstanding_allocations;
+                    }
+                    return ret;
+                }
+
+                bool TryFree(void *p) {
+                    if (this->IsAllocated(p)) {
+                        --this->outstanding_allocations;
+
+                        util::GetReference(this->heap).Free(p);
+
+                        return true;
+                    } else {
+                        return false;
+                    }
+                }
+
+                bool IsAllocated(void *p) const {
+                    const uintptr_t address = reinterpret_cast<uintptr_t>(p);
+
+                    return this->heap_address != 0 && (this->heap_address <= address && address < this->heap_address + this->heap_size);
+                }
+
+                void Reset() {
+                    /* This should require no remaining allocations. */
+                    AMS_ABORT_UNLESS(this->outstanding_allocations == 0);
+
+                    /* Free the heap. */
+                    this->TryRelease();
+                    AMS_ABORT_UNLESS(this->heap_address == 0);
+
+                    /* Clear the heap size. */
+                    this->heap_size = 0;
+                }
+            };
+
+            Result MapByHeap(uintptr_t *out, size_t size) {
+                R_TRY(os::SetMemoryHeapSize(size));
+                R_RETURN(os::AllocateMemoryBlock(out, size));
+            }
+
+            Result UnmapByHeap(uintptr_t address, size_t size) {
+                os::FreeMemoryBlock(address, size);
+                R_RETURN(os::SetMemoryHeapSize(0));
+            }
+
+            constinit os::SharedMemoryType g_applet_shared_memory;
+
+            Result MapAppletMemory(uintptr_t *out, size_t &size) {
+                /* Ensure that we can try to get a native handle for the shared memory. */
+                AMS_FUNCTION_LOCAL_STATIC_CONSTINIT(bool, s_initialized_memlet, false);
+                if (AMS_UNLIKELY(!s_initialized_memlet)) {
+                    R_ABORT_UNLESS(::memletInitialize());
+                    s_initialized_memlet = true;
+                }
+
+                /* Try to get a shared handle for the memory. */
+                ::Handle shmem_handle = INVALID_HANDLE;
+                u64 shmem_size = 0;
+                if (R_FAILED(::memletCreateAppletSharedMemory(std::addressof(shmem_handle), std::addressof(shmem_size), size))) {
+                    /* If we fail, set the heap size to 0. */
+                    size = 0;
+                    R_SUCCEED();
+                }
+
+                /* Set the output size. */
+                size = shmem_size;
+
+                /* Setup the shared memory. */
+                os::AttachSharedMemory(std::addressof(g_applet_shared_memory), shmem_size, shmem_handle, true);
+
+                /* Map the shared memory. */
+                void *mem = os::MapSharedMemory(std::addressof(g_applet_shared_memory), os::MemoryPermission_ReadWrite);
+                AMS_ABORT_UNLESS(mem != nullptr);
+
+                /* Set the output. */
+                *out = reinterpret_cast<uintptr_t>(mem);
+                R_SUCCEED();
+            }
+
+            Result UnmapAppletMemory(uintptr_t, size_t) {
+                /* Check that it's possible for us to unmap. */
+                AMS_ABORT_UNLESS(os::GetSharedMemoryHandle(std::addressof(g_applet_shared_memory)) != os::InvalidNativeHandle);
+
+                /* Unmap. */
+                os::DestroySharedMemory(std::addressof(g_applet_shared_memory));
+
+                /* Check that we unmapped successfully. */
+                AMS_ABORT_UNLESS(os::GetSharedMemoryHandle(std::addressof(g_applet_shared_memory)) == os::InvalidNativeHandle);
+                R_SUCCEED();
+            }
+
+            /* Dynamic allocation globals. */
+            constinit os::SdkMutex g_romfs_build_lock;
+            constinit ncm::ProgramId g_dynamic_heap_program_id{};
+
+            constinit bool g_building_from_dynamic_heap = false;
+
+            constinit DynamicHeap<os::AllocateUnsafeMemory, os::FreeUnsafeMemory> g_dynamic_app_heap;
+            constinit DynamicHeap<MapByHeap, UnmapByHeap> g_dynamic_sys_heap;
+            constinit DynamicHeap<MapAppletMemory, UnmapAppletMemory> g_dynamic_let_heap;
+
+            void InitializeDynamicHeapForBuildRomfs(ncm::ProgramId program_id) {
+                if (program_id == g_dynamic_heap_program_id && g_dynamic_app_heap.heap_size > 0) {
+                    /* This romfs will build out of dynamic heap. */
+                    g_building_from_dynamic_heap = true;
+
+                    g_dynamic_app_heap.Map();
+
+                    if (g_dynamic_sys_heap.heap_size > 0) {
+                        g_dynamic_sys_heap.Map();
+                    }
+
+                    if (g_dynamic_let_heap.heap_size > 0) {
+                        g_dynamic_let_heap.Map();
+                    }
+                }
+            }
+
+            void FinalizeDynamicHeapForBuildRomfs() {
+                /* We are definitely no longer building out of dynamic heap. */
+                g_building_from_dynamic_heap = false;
+
+                g_dynamic_app_heap.TryRelease();
+                g_dynamic_let_heap.Reset();
+            }
+
+            constexpr bool CanAllocateFromDynamicAppletHeap(AllocationType type) {
+                switch (type) {
+                    case AllocationType_FullPath:
+                    case AllocationType_SourceInfo:
+                    case AllocationType_Memory:
+                    case AllocationType_TableCache:
+                        return false;
+                    default:
+                        return true;
+                }
+            }
+
+        }
+
+        void *AllocateTracked(AllocationType type, size_t size) {
+            if (g_building_from_dynamic_heap) {
+                void *ret = nullptr;
+                if (CanAllocateFromDynamicAppletHeap(type) && g_dynamic_let_heap.heap_address != 0) {
+                    ret = g_dynamic_let_heap.Allocate(size);
+                }
+
+                if (ret == nullptr && g_dynamic_app_heap.heap_address != 0) {
+                    ret = g_dynamic_app_heap.Allocate(size);
+                }
+
+                if (ret == nullptr && g_dynamic_sys_heap.heap_address != 0) {
+                    ret = g_dynamic_sys_heap.Allocate(size);
+                }
+
+                if (ret == nullptr) {
+                    ret = std::malloc(size);
+                }
+
+                return ret;
+            } else {
+                return std::malloc(size);
+            }
+        }
+
+        void FreeTracked(AllocationType type, void *p, size_t size) {
+            AMS_UNUSED(type);
+            AMS_UNUSED(size);
+
+            if (g_dynamic_let_heap.TryFree(p)) {
+                if (!g_building_from_dynamic_heap) {
+                    g_dynamic_let_heap.TryRelease();
+                }
+            } else if (g_dynamic_app_heap.TryFree(p)) {
+                if (!g_building_from_dynamic_heap) {
+                    g_dynamic_app_heap.TryRelease();
+                }
+            } else if (g_dynamic_sys_heap.TryFree(p)) {
+                if (!g_building_from_dynamic_heap) {
+                    g_dynamic_sys_heap.TryRelease();
+                }
+            } else {
+                std::free(p);
+            }
+        }
 
         namespace {
 
@@ -71,21 +350,23 @@ namespace ams::mitm::fs {
                     static constexpr size_t MaxCachedSize = (1_MB / 4);
                 private:
                     size_t m_cache_bitsize;
+                    size_t m_cache_size;
                 protected:
                     void *m_cache;
                 protected:
                     DynamicTableCache(size_t sz) {
-                        size_t cache_size = util::CeilingPowerOfTwo(std::min(sz, MaxCachedSize));
-                        m_cache = std::malloc(cache_size);
+                        m_cache_size = util::CeilingPowerOfTwo(std::min(sz, MaxCachedSize));
+                        m_cache = AllocateTracked(AllocationType_TableCache, m_cache_size);
                         while (m_cache == nullptr) {
-                            cache_size >>= 1;
-                            AMS_ABORT_UNLESS(cache_size >= 16_KB);
+                            m_cache_size  >>= 1;
+                            AMS_ABORT_UNLESS(m_cache_size  >= 16_KB);
+                            m_cache = AllocateTracked(AllocationType_TableCache, m_cache_size);
                         }
-                        m_cache_bitsize = util::CountTrailingZeros(cache_size);
+                        m_cache_bitsize = util::CountTrailingZeros(m_cache_size);
                     }
 
                     ~DynamicTableCache() {
-                        std::free(m_cache);
+                        FreeTracked(AllocationType_TableCache, m_cache, m_cache_size);
                     }
 
                     ALWAYS_INLINE size_t GetCacheSize() const { return static_cast<size_t>(1) << m_cache_bitsize; }
@@ -112,21 +393,33 @@ namespace ams::mitm::fs {
                     size_t m_cache_idx;
                     u8 m_fallback_cache[FallbackCacheSize];
                 private:
-                    ALWAYS_INLINE void Read(size_t ofs, void *dst, size_t size) {
-                        R_ABORT_UNLESS(m_storage->Read(m_offset + ofs, dst, size));
+                    ALWAYS_INLINE bool Read(size_t ofs, void *dst, size_t size) {
+                        R_TRY_CATCH(m_storage->Read(m_offset + ofs, dst, size)) {
+                            R_CATCH(fs::ResultNcaExternalKeyNotFound) { return false; }
+                        } R_END_TRY_CATCH_WITH_ABORT_UNLESS;
+
+                        return true;
                     }
-                    ALWAYS_INLINE void ReloadCacheImpl(size_t idx) {
+                    ALWAYS_INLINE bool ReloadCacheImpl(size_t idx) {
                         const size_t rel_ofs = idx * this->GetCacheSize();
                         AMS_ABORT_UNLESS(rel_ofs < m_size);
                         const size_t new_cache_size = std::min(m_size - rel_ofs, this->GetCacheSize());
-                        this->Read(rel_ofs, m_cache, new_cache_size);
+                        if (!this->Read(rel_ofs, m_cache, new_cache_size)) {
+                            return false;
+                        }
+
                         m_cache_idx = idx;
+                        return true;
                     }
 
-                    ALWAYS_INLINE void ReloadCache(size_t idx) {
+                    ALWAYS_INLINE bool ReloadCache(size_t idx) {
                         if (m_cache_idx != idx) {
-                            this->ReloadCacheImpl(idx);
+                            if (!this->ReloadCacheImpl(idx)) {
+                                return false;
+                            }
                         }
+
+                        return true;
                     }
 
                     ALWAYS_INLINE size_t GetCacheIndex(u32 ofs) {
@@ -139,13 +432,18 @@ namespace ams::mitm::fs {
                     }
 
                     const Entry *GetEntry(u32 entry_offset) {
-                        this->ReloadCache(this->GetCacheIndex(entry_offset));
+                        if (!this->ReloadCache(this->GetCacheIndex(entry_offset))) {
+                            return nullptr;
+                        }
 
                         const size_t ofs = entry_offset % this->GetCacheSize();
 
                         const Entry *entry = reinterpret_cast<const Entry *>(reinterpret_cast<uintptr_t>(m_cache) + ofs);
                         if (AMS_UNLIKELY(this->GetCacheIndex(entry_offset) != this->GetCacheIndex(entry_offset + sizeof(Entry) + entry->name_size + sizeof(u32)))) {
-                            this->Read(entry_offset, m_fallback_cache, std::min(m_size - entry_offset, FallbackCacheSize));
+                            if (!this->Read(entry_offset, m_fallback_cache, std::min(m_size - entry_offset, FallbackCacheSize))) {
+                                return nullptr;
+                            }
+
                             entry = reinterpret_cast<const Entry *>(m_fallback_cache);
                         }
                         return entry;
@@ -250,12 +548,11 @@ namespace ams::mitm::fs {
             using DirectoryTableWriter = TableWriter<DirectoryEntry>;
             using FileTableWriter      = TableWriter<FileEntry>;
 
-            constexpr inline u32 CalculatePathHash(u32 parent, const char *_path, u32 start, size_t path_len) {
-                const unsigned char *path = reinterpret_cast<const unsigned char *>(_path);
+            constexpr inline u32 CalculatePathHash(u32 parent, const char *path, u32 start, size_t path_len) {
                 u32 hash = parent ^ 123456789;
                 for (size_t i = 0; i < path_len; i++) {
                     hash = (hash >> 5) | (hash << 27);
-                    hash ^= path[start + i];
+                    hash ^= static_cast<unsigned char>(path[start + i]);
                 }
                 return hash;
             }
@@ -293,12 +590,27 @@ namespace ams::mitm::fs {
         }
 
         Builder::Builder(ncm::ProgramId pr_id) : m_program_id(pr_id), m_num_dirs(0), m_num_files(0), m_dir_table_size(0), m_file_table_size(0), m_dir_hash_table_size(0), m_file_hash_table_size(0), m_file_partition_size(0) {
-            auto res = m_directories.emplace(std::make_unique<BuildDirectoryContext>(BuildDirectoryContext::RootTag{}));
+            /* Ensure only one romfs is built at any time. */
+            g_romfs_build_lock.Lock();
+
+            /* If we should be using dynamic heap, turn it on. */
+            InitializeDynamicHeapForBuildRomfs(m_program_id);
+
+            auto res = m_directories.emplace(std::unique_ptr<BuildDirectoryContext>(AllocateTyped<BuildDirectoryContext>(AllocationType_BuildDirContext, BuildDirectoryContext::RootTag{})));
             AMS_ABORT_UNLESS(res.second);
             m_root = res.first->get();
             m_num_dirs = 1;
             m_dir_table_size = 0x18;
         }
+
+        Builder::~Builder() {
+            /* If we have nothing remaining in dynamic heap, release it. */
+            FinalizeDynamicHeapForBuildRomfs();
+
+            /* Release the romfs build lock. */
+            g_romfs_build_lock.Unlock();
+        }
+
 
         void Builder::AddDirectory(BuildDirectoryContext **out, BuildDirectoryContext *parent_ctx, std::unique_ptr<BuildDirectoryContext> child_ctx) {
             /* Set parent context member. */
@@ -347,9 +659,9 @@ namespace ams::mitm::fs {
             AMS_ABORT_UNLESS(num_child_dirs >= 0);
 
             {
-                BuildDirectoryContext **child_dirs = num_child_dirs != 0 ? reinterpret_cast<BuildDirectoryContext **>(std::malloc(sizeof(BuildDirectoryContext *) * num_child_dirs)) : nullptr;
+                BuildDirectoryContext **child_dirs = num_child_dirs != 0 ? reinterpret_cast<BuildDirectoryContext **>(AllocateTracked(AllocationType_DirPointerArray, sizeof(BuildDirectoryContext *) * num_child_dirs)) : nullptr;
                 AMS_ABORT_UNLESS(num_child_dirs == 0 || child_dirs != nullptr);
-                ON_SCOPE_EXIT { std::free(child_dirs); };
+                ON_SCOPE_EXIT { if (child_dirs != nullptr) { FreeTracked(AllocationType_DirPointerArray, child_dirs, sizeof(BuildDirectoryContext *) * num_child_dirs); } };
 
                 s64 cur_child_dir_ind = 0;
                 {
@@ -368,12 +680,12 @@ namespace ams::mitm::fs {
                             AMS_ABORT_UNLESS(child_dirs != nullptr);
 
                             BuildDirectoryContext *real_child = nullptr;
-                            this->AddDirectory(std::addressof(real_child), parent, std::make_unique<BuildDirectoryContext>(m_dir_entry.name, strlen(m_dir_entry.name)));
+                            this->AddDirectory(std::addressof(real_child), parent, std::unique_ptr<BuildDirectoryContext>(AllocateTyped<BuildDirectoryContext>(AllocationType_BuildDirContext, m_dir_entry.name, strlen(m_dir_entry.name))));
                             AMS_ABORT_UNLESS(real_child != nullptr);
                             child_dirs[cur_child_dir_ind++] = real_child;
                             AMS_ABORT_UNLESS(cur_child_dir_ind <= num_child_dirs);
                         } else /* if (m_dir_entry.type == FsDirEntryType_File) */ {
-                            this->AddFile(parent, std::make_unique<BuildFileContext>(m_dir_entry.name, strlen(m_dir_entry.name), m_dir_entry.file_size, 0, m_cur_source_type));
+                            this->AddFile(parent, std::unique_ptr<BuildFileContext>(AllocateTyped<BuildFileContext>(AllocationType_BuildFileContext, m_dir_entry.name, strlen(m_dir_entry.name), m_dir_entry.file_size, 0, m_cur_source_type)));
                         }
                     }
                 }
@@ -398,12 +710,18 @@ namespace ams::mitm::fs {
 
         void Builder::VisitDirectory(BuildDirectoryContext *parent, u32 parent_offset, DirectoryTableReader &dir_table, FileTableReader &file_table) {
             const DirectoryEntry *parent_entry = dir_table.GetEntry(parent_offset);
+            if (AMS_UNLIKELY(parent_entry == nullptr)) {
+                return;
+            }
 
             u32 cur_file_offset = parent_entry->file;
             while (cur_file_offset != EmptyEntry) {
                 const FileEntry *cur_file = file_table.GetEntry(cur_file_offset);
+                if (AMS_UNLIKELY(cur_file == nullptr)) {
+                    return;
+                }
 
-                this->AddFile(parent, std::make_unique<BuildFileContext>(cur_file->name, cur_file->name_size, cur_file->size, cur_file->offset, m_cur_source_type));
+                this->AddFile(parent, std::unique_ptr<BuildFileContext>(AllocateTyped<BuildFileContext>(AllocationType_BuildFileContext, cur_file->name, cur_file->name_size, cur_file->size, cur_file->offset, m_cur_source_type)));
 
                 cur_file_offset = cur_file->sibling;
             }
@@ -414,8 +732,11 @@ namespace ams::mitm::fs {
                 u32 next_child_offset = 0;
                 {
                     const DirectoryEntry *cur_child = dir_table.GetEntry(cur_child_offset);
+                    if (AMS_UNLIKELY(cur_child == nullptr)) {
+                        return;
+                    }
 
-                    this->AddDirectory(std::addressof(real_child), parent, std::make_unique<BuildDirectoryContext>(cur_child->name, cur_child->name_size));
+                    this->AddDirectory(std::addressof(real_child), parent, std::unique_ptr<BuildDirectoryContext>(AllocateTyped<BuildDirectoryContext>(AllocationType_BuildDirContext, cur_child->name, cur_child->name_size)));
                     AMS_ABORT_UNLESS(real_child != nullptr);
 
                     next_child_offset = cur_child->sibling;
@@ -438,7 +759,7 @@ namespace ams::mitm::fs {
             /* If there is no romfs folder on the SD, don't bother continuing. */
             {
                 FsDir dir;
-                if (R_FAILED(mitm::fs::OpenAtmosphereRomfsDirectory(std::addressof(dir), m_program_id, m_root->path.get(), OpenDirectoryMode_Directory, std::addressof(sd_filesystem)))) {
+                if (R_FAILED(mitm::fs::OpenAtmosphereRomfsDirectory(std::addressof(dir), m_program_id, m_root->path, OpenDirectoryMode_Directory, std::addressof(sd_filesystem)))) {
                     return;
                 }
                 fsDirClose(std::addressof(dir));
@@ -461,7 +782,7 @@ namespace ams::mitm::fs {
             this->VisitDirectory(m_root, 0x0, dir_table, file_table);
         }
 
-        void Builder::Build(std::vector<SourceInfo> *out_infos) {
+        void Builder::Build(SourceInfoVector *out_infos) {
             /* Clear output. */
             out_infos->clear();
 
@@ -477,7 +798,7 @@ namespace ams::mitm::fs {
             m_file_hash_table_size = sizeof(u32) * num_file_hash_table_entries;
 
             /* Allocate metadata, make pointers. */
-            Header *header = reinterpret_cast<Header *>(std::malloc(sizeof(Header)));
+            Header *header = reinterpret_cast<Header *>(AllocateTracked(AllocationType_Memory, sizeof(Header)));
             std::memset(header, 0x00, sizeof(*header));
 
             /* Open metadata file. */
@@ -552,13 +873,13 @@ namespace ams::mitm::fs {
             /* Set all files' hash value = hash index. */
             for (const auto &it : m_files) {
                 BuildFileContext *cur_file = it.get();
-                cur_file->hash_value = CalculatePathHash(cur_file->parent->entry_offset, cur_file->path.get(), 0, cur_file->path_len) % num_file_hash_table_entries;
+                cur_file->hash_value = CalculatePathHash(cur_file->parent->entry_offset, cur_file->path, 0, cur_file->path_len) % num_file_hash_table_entries;
             }
 
             /* Set all directories' hash value = hash index. */
             for (const auto &it : m_directories) {
                 BuildDirectoryContext *cur_dir = it.get();
-                cur_dir->hash_value = CalculatePathHash(cur_dir == m_root ? 0 : cur_dir->parent->entry_offset, cur_dir->path.get(), 0, cur_dir->path_len) % num_dir_hash_table_entries;
+                cur_dir->hash_value = CalculatePathHash(cur_dir == m_root ? 0 : cur_dir->parent->entry_offset, cur_dir->path, 0, cur_dir->path_len) % num_dir_hash_table_entries;
             }
 
             /* Write hash tables. */
@@ -617,19 +938,42 @@ namespace ams::mitm::fs {
                 }
             }
 
+            /* Replace sibling pointers with sibling entry_offsets, so that we can de-allocate as we go. */
+            {
+                /* Set all directories sibling and file pointers. */
+                for (const auto &it : m_directories) {
+                    BuildDirectoryContext *cur_dir = it.get();
+
+                    cur_dir->ClearHashMark();
+
+                    cur_dir->sibling_offset = (cur_dir->sibling == nullptr) ? EmptyEntry : cur_dir->sibling->entry_offset;
+                    cur_dir->child_offset   = (cur_dir->child   == nullptr) ? EmptyEntry : cur_dir->child->entry_offset;
+                    cur_dir->file_offset    = (cur_dir->file    == nullptr) ? EmptyEntry : cur_dir->file->entry_offset;
+
+                    cur_dir->parent_offset  = cur_dir == m_root ? 0 : cur_dir->parent->entry_offset;
+                }
+
+                /* Replace all files' sibling pointers. */
+                for (const auto &it : m_files) {
+                    BuildFileContext *cur_file = it.get();
+
+                    cur_file->ClearHashMark();
+
+                    cur_file->sibling_offset = (cur_file->sibling == nullptr) ? EmptyEntry : cur_file->sibling->entry_offset;
+                }
+            }
+
             /* Write the file table. */
             {
                 FileTableWriter file_table(std::addressof(metadata_file), m_dir_hash_table_size + m_dir_table_size + m_file_hash_table_size, m_file_table_size);
 
-                for (const auto &it : m_files) {
-                    BuildFileContext *cur_file = it.get();
+                for (auto it = m_files.begin(); it != m_files.end(); it = m_files.erase(it)) {
+                    BuildFileContext *cur_file = it->get();
                     FileEntry *cur_entry = file_table.GetEntry(cur_file->entry_offset, cur_file->path_len);
-
-                    cur_file->ClearHashMark();
 
                     /* Set entry fields. */
                     cur_entry->parent  = cur_file->parent->entry_offset;
-                    cur_entry->sibling = (cur_file->sibling == nullptr) ? EmptyEntry : cur_file->sibling->entry_offset;
+                    cur_entry->sibling = cur_file->sibling_offset;
                     cur_entry->offset  = cur_file->offset;
                     cur_entry->size    = cur_file->size;
                     cur_entry->hash    = cur_file->hash_value;
@@ -638,7 +982,7 @@ namespace ams::mitm::fs {
                     const u32 name_size = cur_file->path_len;
                     cur_entry->name_size = name_size;
                     if (name_size) {
-                        std::memcpy(cur_entry->name, cur_file->path.get(), name_size);
+                        std::memcpy(cur_entry->name, cur_file->path, name_size);
                         for (size_t i = name_size; i < util::AlignUp(name_size, 4); i++) {
                             cur_entry->name[i] = 0;
                         }
@@ -660,8 +1004,16 @@ namespace ams::mitm::fs {
                             break;
                         case DataSourceType::LooseSdFile:
                             {
-                                char *new_path = new char[cur_file->GetPathLength() + 1];
-                                cur_file->GetPath(new_path);
+                                char full_path[fs::EntryNameLengthMax + 1];
+                                const size_t path_needed_size = cur_file->GetPathLength() + 1;
+                                AMS_ABORT_UNLESS(path_needed_size <= sizeof(full_path));
+                                cur_file->GetPath(full_path);
+
+                                FreeTracked(AllocationType_FileName, cur_file->path, cur_file->path_len + 1);
+                                cur_file->path = nullptr;
+
+                                char *new_path = static_cast<char *>(AllocateTracked(AllocationType_FullPath, path_needed_size));
+                                std::memcpy(new_path, full_path, path_needed_size);
                                 out_infos->emplace_back(cur_file->offset + FilePartitionOffset, cur_file->size, cur_file->source_type, new_path);
                             }
                             break;
@@ -674,24 +1026,22 @@ namespace ams::mitm::fs {
             {
                 DirectoryTableWriter dir_table(std::addressof(metadata_file), m_dir_hash_table_size, m_dir_table_size);
 
-                for (const auto &it : m_directories) {
-                    BuildDirectoryContext *cur_dir = it.get();
+                for (auto it = m_directories.begin(); it != m_directories.end(); it = m_directories.erase(it)) {
+                    BuildDirectoryContext *cur_dir = it->get();
                     DirectoryEntry *cur_entry = dir_table.GetEntry(cur_dir->entry_offset, cur_dir->path_len);
 
-                    cur_dir->ClearHashMark();
-
                     /* Set entry fields. */
-                    cur_entry->parent  = cur_dir == m_root ? 0 : cur_dir->parent->entry_offset;
-                    cur_entry->sibling = (cur_dir->sibling == nullptr) ? EmptyEntry : cur_dir->sibling->entry_offset;
-                    cur_entry->child   = (cur_dir->child   == nullptr) ? EmptyEntry : cur_dir->child->entry_offset;
-                    cur_entry->file    = (cur_dir->file    == nullptr) ? EmptyEntry : cur_dir->file->entry_offset;
+                    cur_entry->parent  = cur_dir->parent_offset;
+                    cur_entry->sibling = cur_dir->sibling_offset;
+                    cur_entry->child   = cur_dir->child_offset;
+                    cur_entry->file    = cur_dir->file_offset;
                     cur_entry->hash    = cur_dir->hash_value;
 
                     /* Set name. */
                     const u32 name_size = cur_dir->path_len;
                     cur_entry->name_size = name_size;
                     if (name_size) {
-                        std::memcpy(cur_entry->name, cur_dir->path.get(), name_size);
+                        std::memcpy(cur_entry->name, cur_dir->path, name_size);
                         for (size_t i = name_size; i < util::AlignUp(name_size, 4); i++) {
                             cur_entry->name[i] = 0;
                         }
@@ -721,6 +1071,40 @@ namespace ams::mitm::fs {
                 R_ABORT_UNLESS(fsFileFlush(std::addressof(metadata_file)));
                 out_infos->emplace_back(header->dir_hash_table_ofs, metadata_size, DataSourceType::Metadata, new RemoteFile(metadata_file));
             }
+        }
+
+        Result ConfigureDynamicHeap(u64 *out_size, ncm::ProgramId program_id, const cfg::OverrideStatus &status, bool is_application) {
+            /* Baseline: use no dynamic heap. */
+            *out_size = 0;
+
+            /* If the process is not an application, we do not care about dynamic heap. */
+            R_SUCCEED_IF(!is_application);
+
+            /* First, we need to ensure that, if the game used dynamic heap, we clear it. */
+            if (g_dynamic_app_heap.heap_size > 0) {
+                mitm::fs::FinalizeLayeredRomfsStorage(g_dynamic_heap_program_id);
+
+                /* Free the heap. */
+                g_dynamic_app_heap.Reset();
+                g_dynamic_sys_heap.Reset();
+            }
+
+            /* Next, if we aren't going to end up building a romfs, we can ignore dynamic heap. */
+            R_SUCCEED_IF(!status.IsProgramSpecific());
+
+            /* Only mitm if there is actually an override romfs. */
+            R_SUCCEED_IF(!mitm::fs::HasSdRomfsContent(program_id));
+
+            /* Next, set the new program id for dynamic heap. */
+            g_dynamic_heap_program_id    = program_id;
+            g_dynamic_app_heap.heap_size = GetDynamicAppHeapSize(g_dynamic_heap_program_id);
+            g_dynamic_sys_heap.heap_size = GetDynamicSysHeapSize(g_dynamic_heap_program_id);
+            g_dynamic_let_heap.heap_size = MaximumRomfsBuildAppletMemorySize;
+
+            /* Set output. */
+            *out_size = g_dynamic_app_heap.heap_size;
+
+            R_SUCCEED();
         }
 
     }

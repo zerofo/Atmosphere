@@ -172,7 +172,14 @@ namespace ams::ncm {
 
             Result GetPatchId(PatchId *out_patch_id, const ContentMetaKey &key) {
                 AMS_ASSERT(m_interface != nullptr);
-                R_RETURN(m_interface->GetPatchId(out_patch_id, key));
+                static_assert(sizeof(*out_patch_id) == sizeof(u64));
+                R_RETURN(m_interface->GetPatchContentMetaId(reinterpret_cast<u64 *>(out_patch_id), key));
+            }
+
+            Result GetDataPatchId(DataPatchId *out_patch_id, const ContentMetaKey &key) {
+                AMS_ASSERT(m_interface != nullptr);
+                static_assert(sizeof(*out_patch_id) == sizeof(u64));
+                R_RETURN(m_interface->GetPatchContentMetaId(reinterpret_cast<u64 *>(out_patch_id), key));
             }
 
             Result DisableForcibly() {
@@ -213,6 +220,16 @@ namespace ams::ncm {
             Result GetContentInfoByTypeAndIdOffset(ContentInfo *out_content_info, const ContentMetaKey &key, ContentType type, u8 id_offset) {
                 AMS_ASSERT(m_interface != nullptr);
                 R_RETURN(m_interface->GetContentInfoByTypeAndIdOffset(out_content_info, key, type, id_offset));
+            }
+
+            Result GetPlatform(ContentMetaPlatform *out, const ContentMetaKey &key) {
+                AMS_ASSERT(m_interface != nullptr);
+                R_RETURN(m_interface->GetPlatform(out, key));
+            }
+
+            Result HasAttributes(u8 *out, u8 attr_mask) {
+                AMS_ASSERT(m_interface != nullptr);
+                R_RETURN(m_interface->HasAttributes(out, attr_mask));
             }
     };
 

@@ -27,7 +27,7 @@ namespace ams::kern::svc {
             R_UNLESS(size < ams::kern::MainMemorySizeMax,                svc::ResultInvalidSize());
 
             /* Set the heap size. */
-            KProcessAddress address;
+            KProcessAddress address = Null<KProcessAddress>;
             R_TRY(GetCurrentProcess().GetPageTable().SetHeapSize(std::addressof(address), size));
 
             /* Set the output. */
@@ -48,10 +48,11 @@ namespace ams::kern::svc {
 
         Result MapPhysicalMemory(uintptr_t address, size_t size) {
             /* Validate address / size. */
-            R_UNLESS(util::IsAligned(address, PageSize), svc::ResultInvalidAddress());
-            R_UNLESS(util::IsAligned(size,    PageSize), svc::ResultInvalidSize());
-            R_UNLESS(size > 0,                           svc::ResultInvalidSize());
-            R_UNLESS((address < address + size),         svc::ResultInvalidMemoryRegion());
+            const size_t min_alignment = Kernel::GetMemoryManager().GetMinimumAlignment(GetCurrentProcess().GetMemoryPool());
+            R_UNLESS(util::IsAligned(address, min_alignment), svc::ResultInvalidAddress());
+            R_UNLESS(util::IsAligned(size,    min_alignment), svc::ResultInvalidSize());
+            R_UNLESS(size > 0,                                svc::ResultInvalidSize());
+            R_UNLESS((address < address + size),              svc::ResultInvalidMemoryRegion());
 
             /* Verify that the process has system resource. */
             auto &process = GetCurrentProcess();
@@ -69,10 +70,11 @@ namespace ams::kern::svc {
 
         Result UnmapPhysicalMemory(uintptr_t address, size_t size) {
             /* Validate address / size. */
-            R_UNLESS(util::IsAligned(address, PageSize), svc::ResultInvalidAddress());
-            R_UNLESS(util::IsAligned(size,    PageSize), svc::ResultInvalidSize());
-            R_UNLESS(size > 0,                           svc::ResultInvalidSize());
-            R_UNLESS((address < address + size),         svc::ResultInvalidMemoryRegion());
+            const size_t min_alignment = Kernel::GetMemoryManager().GetMinimumAlignment(GetCurrentProcess().GetMemoryPool());
+            R_UNLESS(util::IsAligned(address, min_alignment), svc::ResultInvalidAddress());
+            R_UNLESS(util::IsAligned(size,    min_alignment), svc::ResultInvalidSize());
+            R_UNLESS(size > 0,                                svc::ResultInvalidSize());
+            R_UNLESS((address < address + size),              svc::ResultInvalidMemoryRegion());
 
             /* Verify that the process has system resource. */
             auto &process = GetCurrentProcess();

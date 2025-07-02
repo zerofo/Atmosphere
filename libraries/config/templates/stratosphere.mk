@@ -58,7 +58,7 @@ export CXXWRAPS := -Wl,--wrap,__cxa_pure_virtual \
 			-Wl,--wrap,exit
 else ifeq ($(ATMOSPHERE_BOARD),generic_windows)
 export CXXREQUIRED :=
-export CXXWRAPS    := -Wl,--wrap,__p__acmdln
+export CXXWRAPS    := -Wl,--wrap,__p__acmdln -Wl,--wrap,_set_invalid_parameter_handler
 else
 export CXXREQUIRED :=
 export CXXWRAPS    :=
@@ -66,7 +66,7 @@ endif
 
 
 ifeq ($(ATMOSPHERE_BOARD),nx-hac-001)
-export LDFLAGS     = -specs=$(ATMOSPHERE_LIBRARIES_DIR)/libstratosphere/stratosphere.specs -specs=$(DEVKITPRO)/libnx/switch.specs $(CXXFLAGS) $(CXXWRAPS) $(CXXREQUIRED) -Wl,-Map,$(notdir $*.map)
+export LDFLAGS     = -specs=$(ATMOSPHERE_LIBRARIES_DIR)/libstratosphere/stratosphere.specs -specs=$(DEVKITPRO)/libnx/switch.specs $(CXXFLAGS) $(CXXWRAPS) $(CXXREQUIRED) -Wl,-Map,$(notdir $*.map) -Wl,-z,relro,-z,now
 else ifeq ($(ATMOSPHERE_OS_NAME),macos)
 export LDFLAGS     = $(CXXFLAGS) $(CXXWRAPS) $(CXXREQUIRED) -Wl,-map,$(notdir $@.map)
 else

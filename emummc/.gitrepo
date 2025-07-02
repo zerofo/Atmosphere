@@ -6,7 +6,7 @@
 [subrepo]
 	remote = https://github.com/m4xw/emummc
 	branch = develop
-	commit = 4714b2df9eaf68fb85516b35f7f4265ab0413825
-	parent = 99f6a96845b6097d50f5059eea9245d27876f26a
+	commit = a8e5f1a184aeb8ba884166a1e4f386088d4a6cf1
+	parent = 409c3cf9e190dbb65fe76570954939cbe8a5eca0
 	method = merge
 	cmdver = 0.4.1

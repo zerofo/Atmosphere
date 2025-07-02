@@ -50,8 +50,9 @@ namespace ams::fssrv {
             Result SetCurrentProcess(const ams::sf::ClientProcessId &client_pid);
             Result OpenDataFileSystemByCurrentProcess(ams::sf::Out<ams::sf::SharedPointer<fssrv::sf::IFileSystem>> out);
             Result OpenFileSystemWithPatch(ams::sf::Out<ams::sf::SharedPointer<fssrv::sf::IFileSystem>> out, ncm::ProgramId program_id, u32 type);
-            Result OpenFileSystemWithId(ams::sf::Out<ams::sf::SharedPointer<fssrv::sf::IFileSystem>> out, const fssrv::sf::FspPath &path, u64 program_id, u32 type);
+            Result OpenFileSystemWithIdObsolete(ams::sf::Out<ams::sf::SharedPointer<fssrv::sf::IFileSystem>> out, const fssrv::sf::FspPath &path, u64 program_id, u32 type);
             Result OpenDataFileSystemByProgramId(ams::sf::Out<ams::sf::SharedPointer<fssrv::sf::IFileSystem>> out, ncm::ProgramId program_id);
+            Result OpenFileSystemWithId(ams::sf::Out<ams::sf::SharedPointer<fssrv::sf::IFileSystem>> out, const fssrv::sf::FspPath &path, fs::ContentAttributes attr, u64 program_id, u32 type);
             Result OpenBisFileSystem(ams::sf::Out<ams::sf::SharedPointer<fssrv::sf::IFileSystem>> out, const fssrv::sf::FspPath &path, u32 id);
             Result OpenBisStorage(ams::sf::Out<ams::sf::SharedPointer<fssrv::sf::IStorage>> out, u32 id);
             Result InvalidateBisCache();
@@ -90,7 +91,8 @@ namespace ams::fssrv {
             Result OpenPatchDataStorageByCurrentProcess(ams::sf::Out<ams::sf::SharedPointer<fssrv::sf::IStorage>> out);
             Result OpenDataFileSystemWithProgramIndex(ams::sf::Out<ams::sf::SharedPointer<fssrv::sf::IFileSystem>> out, u8 index);
             Result OpenDataStorageWithProgramIndex(ams::sf::Out<ams::sf::SharedPointer<fssrv::sf::IStorage>> out, u8 index);
-            Result OpenDataStorageByPath(ams::sf::Out<ams::sf::SharedPointer<fssrv::sf::IStorage>> out, const fssrv::sf::FspPath &path, u32 type);
+            Result OpenDataStorageByPathObsolete(ams::sf::Out<ams::sf::SharedPointer<fssrv::sf::IStorage>> out, const fssrv::sf::FspPath &path, u32 type);
+            Result OpenDataStorageByPath(ams::sf::Out<ams::sf::SharedPointer<fssrv::sf::IStorage>> out, const fssrv::sf::FspPath &path, fs::ContentAttributes attr, u32 type);
             Result OpenDeviceOperator(ams::sf::Out<ams::sf::SharedPointer<fssrv::sf::IDeviceOperator>> out);
             Result OpenSdCardDetectionEventNotifier(ams::sf::Out<ams::sf::SharedPointer<fssrv::sf::IEventNotifier>> out);
             Result OpenGameCardDetectionEventNotifier(ams::sf::Out<ams::sf::SharedPointer<fssrv::sf::IEventNotifier>> out);
@@ -102,8 +104,10 @@ namespace ams::fssrv {
             Result GetRightsId(ams::sf::Out<fs::RightsId> out, ncm::ProgramId program_id, ncm::StorageId storage_id);
             Result RegisterExternalKey(const fs::RightsId &rights_id, const spl::AccessKey &access_key);
             Result UnregisterAllExternalKey();
+            Result GetProgramId(ams::sf::Out<ncm::ProgramId> out, const fssrv::sf::FspPath &path, fs::ContentAttributes attr);
             Result GetRightsIdByPath(ams::sf::Out<fs::RightsId> out, const fssrv::sf::FspPath &path);
-            Result GetRightsIdAndKeyGenerationByPath(ams::sf::Out<fs::RightsId> out, ams::sf::Out<u8> out_key_generation, const fssrv::sf::FspPath &path);
+            Result GetRightsIdAndKeyGenerationByPathObsolete(ams::sf::Out<fs::RightsId> out, ams::sf::Out<u8> out_key_generation, const fssrv::sf::FspPath &path);
+            Result GetRightsIdAndKeyGenerationByPath(ams::sf::Out<fs::RightsId> out, ams::sf::Out<u8> out_key_generation, const fssrv::sf::FspPath &path, fs::ContentAttributes attr);
             Result SetCurrentPosixTimeWithTimeDifference(s64 posix_time, s32 time_difference);
             Result GetFreeSpaceSizeForSaveData(ams::sf::Out<s64> out, u8 space_id);
             Result VerifySaveDataFileSystemBySaveDataSpaceId();
@@ -117,6 +121,7 @@ namespace ams::fssrv {
             Result IsSignedSystemPartitionOnSdCardValid(ams::sf::Out<bool> out);
             Result OpenAccessFailureDetectionEventNotifier();
             /* ... */
+            Result GetAndClearErrorInfo(ams::sf::Out<fs::FileSystemProxyErrorInfo> out);
             Result RegisterProgramIndexMapInfo(const ams::sf::InBuffer &buffer, s32 count);
             Result SetBisRootForHost(u32 id, const fssrv::sf::FspPath &path);
             Result SetSaveDataSize(s64 size, s64 journal_size);
@@ -127,6 +132,7 @@ namespace ams::fssrv {
             Result OutputAccessLogToSdCard(const ams::sf::InBuffer &buf);
             Result RegisterUpdatePartition();
             Result OpenRegisteredUpdatePartition(ams::sf::Out<ams::sf::SharedPointer<fssrv::sf::IFileSystem>> out);
+            Result GetAndClearMemoryReportInfo(ams::sf::Out<fs::MemoryReportInfo> out);
             /* ... */
             Result GetProgramIndexForAccessLog(ams::sf::Out<u32> out_idx, ams::sf::Out<u32> out_count);
             Result GetFsStackUsage(ams::sf::Out<u32> out, u32 type);
@@ -142,7 +148,10 @@ namespace ams::fssrv {
         public:
             /* fsp-ldr */
             Result OpenCodeFileSystemDeprecated(ams::sf::Out<ams::sf::SharedPointer<fssrv::sf::IFileSystem>> out_fs, const fssrv::sf::Path &path, ncm::ProgramId program_id);
-            Result OpenCodeFileSystem(ams::sf::Out<ams::sf::SharedPointer<fssrv::sf::IFileSystem>> out_fs, ams::sf::Out<fs::CodeVerificationData> out_verif, const fssrv::sf::Path &path, ncm::ProgramId program_id);
+            Result OpenCodeFileSystemDeprecated2(ams::sf::Out<ams::sf::SharedPointer<fssrv::sf::IFileSystem>> out_fs, ams::sf::Out<fs::CodeVerificationData> out_verif, const fssrv::sf::Path &path, ncm::ProgramId program_id);
+            Result OpenCodeFileSystemDeprecated3(ams::sf::Out<ams::sf::SharedPointer<fssrv::sf::IFileSystem>> out_fs, ams::sf::Out<fs::CodeVerificationData> out_verif, const fssrv::sf::Path &path, fs::ContentAttributes attr, ncm::ProgramId program_id);
+            Result OpenCodeFileSystemDeprecated4(ams::sf::Out<ams::sf::SharedPointer<fssrv::sf::IFileSystem>> out_fs, const ams::sf::OutBuffer &out_verif, const fssrv::sf::Path &path, fs::ContentAttributes attr, ncm::ProgramId program_id);
+            Result OpenCodeFileSystem(ams::sf::Out<ams::sf::SharedPointer<fssrv::sf::IFileSystem>> out_fs, const ams::sf::OutBuffer &out_verif, fs::ContentAttributes attr, ncm::ProgramId program_id, ncm::StorageId storage_id);
             Result IsArchivedProgram(ams::sf::Out<bool> out, u64 process_id);
     };
     static_assert(sf::IsIFileSystemProxy<FileSystemProxyImpl>);
@@ -156,8 +165,23 @@ namespace ams::fssrv {
                 R_THROW(fs::ResultPortAcceptableCountLimited());
             }
 
-            Result OpenCodeFileSystem(ams::sf::Out<ams::sf::SharedPointer<fssrv::sf::IFileSystem>> out_fs, ams::sf::Out<fs::CodeVerificationData> out_verif, const fssrv::sf::Path &path, ncm::ProgramId program_id) {
+            Result OpenCodeFileSystemDeprecated2(ams::sf::Out<ams::sf::SharedPointer<fssrv::sf::IFileSystem>> out_fs, ams::sf::Out<fs::CodeVerificationData> out_verif, const fssrv::sf::Path &path, ncm::ProgramId program_id) {
                 AMS_UNUSED(out_fs, out_verif, path, program_id);
+                R_THROW(fs::ResultPortAcceptableCountLimited());
+            }
+
+            Result OpenCodeFileSystemDeprecated3(ams::sf::Out<ams::sf::SharedPointer<fssrv::sf::IFileSystem>> out_fs, ams::sf::Out<fs::CodeVerificationData> out_verif, const fssrv::sf::Path &path, fs::ContentAttributes attr, ncm::ProgramId program_id) {
+                AMS_UNUSED(out_fs, out_verif, path, attr, program_id);
+                R_THROW(fs::ResultPortAcceptableCountLimited());
+            }
+
+            Result OpenCodeFileSystemDeprecated4(ams::sf::Out<ams::sf::SharedPointer<fssrv::sf::IFileSystem>> out_fs, const ams::sf::OutBuffer &out_verif, const fssrv::sf::Path &path, fs::ContentAttributes attr, ncm::ProgramId program_id) {
+                AMS_UNUSED(out_fs, out_verif, path, attr, program_id);
+                R_THROW(fs::ResultPortAcceptableCountLimited());
+            }
+
+            Result OpenCodeFileSystem(ams::sf::Out<ams::sf::SharedPointer<fssrv::sf::IFileSystem>> out_fs, const ams::sf::OutBuffer &out_verif, fs::ContentAttributes attr, ncm::ProgramId program_id, ncm::StorageId storage_id) {
+                AMS_UNUSED(out_fs, out_verif, attr, program_id, storage_id);
                 R_THROW(fs::ResultPortAcceptableCountLimited());
             }
 

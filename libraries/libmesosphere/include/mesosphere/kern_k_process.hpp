@@ -76,6 +76,7 @@ namespace ams::kern {
             bool                        m_is_signaled;
             bool                        m_is_initialized;
             bool                        m_is_application;
+            bool                        m_is_default_application_system_resource;
             char                        m_name[13];
             util::Atomic<u16>           m_num_running_threads;
             u32                         m_flags;
@@ -84,7 +85,9 @@ namespace ams::kern {
             KCapabilities               m_capabilities;
             ams::svc::ProgramId         m_program_id;
             u64                         m_process_id;
+            #if defined(MESOSPHERE_ENABLE_PROCESS_CREATION_TIME)
             s64                         m_creation_time;
+            #endif
             KProcessAddress             m_code_address;
             size_t                      m_code_size;
             size_t                      m_main_thread_stack_size;
@@ -108,6 +111,7 @@ namespace ams::kern {
             KWaitObject                 m_wait_object;
             KThread                    *m_running_threads[cpu::NumCores];
             u64                         m_running_thread_idle_counts[cpu::NumCores];
+            u64                         m_running_thread_switch_counts[cpu::NumCores];
             KThread                    *m_pinned_threads[cpu::NumCores];
             util::Atomic<s64>           m_cpu_time;
             util::Atomic<s64>           m_num_process_switches;
@@ -175,6 +179,8 @@ namespace ams::kern {
 
             constexpr bool IsApplication() const { return m_is_application; }
 
+            constexpr bool IsDefaultApplicationSystemResource() const { return m_is_default_application_system_resource; }
+
             constexpr bool IsSuspended() const { return m_is_suspended; }
             constexpr void SetSuspended(bool suspended) { m_is_suspended = suspended; }
 
@@ -198,6 +204,10 @@ namespace ams::kern {
 
             constexpr bool IsPermittedDebug() const {
                 return m_capabilities.IsPermittedDebug();
+            }
+
+            constexpr bool CanForceDebugProd() const {
+                return m_capabilities.CanForceDebugProd();
             }
 
             constexpr bool CanForceDebug() const {
@@ -277,17 +287,26 @@ namespace ams::kern {
             void IncrementRunningThreadCount();
             void DecrementRunningThreadCount();
 
+            size_t GetRequiredSecureMemorySizeNonDefault() const {
+                return (!this->IsDefaultApplicationSystemResource() && m_system_resource->IsSecureResource()) ? static_cast<KSecureSystemResource *>(m_system_resource)->CalculateRequiredSecureMemorySize() : 0;
+            }
+
+            size_t GetRequiredSecureMemorySize() const {
+                return m_system_resource->IsSecureResource() ? static_cast<KSecureSystemResource *>(m_system_resource)->CalculateRequiredSecureMemorySize() : 0;
+            }
+
             size_t GetTotalSystemResourceSize() const {
-                return m_system_resource->IsSecureResource() ? static_cast<KSecureSystemResource *>(m_system_resource)->GetSize() : 0;
+                return (!this->IsDefaultApplicationSystemResource() && m_system_resource->IsSecureResource()) ? static_cast<KSecureSystemResource *>(m_system_resource)->GetSize() : 0;
             }
 
             size_t GetUsedSystemResourceSize() const {
-                return m_system_resource->IsSecureResource() ? static_cast<KSecureSystemResource *>(m_system_resource)->GetUsedSize() : 0;
+                return (!this->IsDefaultApplicationSystemResource() && m_system_resource->IsSecureResource()) ? static_cast<KSecureSystemResource *>(m_system_resource)->GetUsedSize() : 0;
             }
 
-            void SetRunningThread(s32 core, KThread *thread, u64 idle_count) {
-                m_running_threads[core]            = thread;
-                m_running_thread_idle_counts[core] = idle_count;
+            void SetRunningThread(s32 core, KThread *thread, u64 idle_count, u64 switch_count) {
+                m_running_threads[core]              = thread;
+                m_running_thread_idle_counts[core]   = idle_count;
+                m_running_thread_switch_counts[core] = switch_count;
             }
 
             void ClearRunningThread(KThread *thread) {
@@ -306,6 +325,7 @@ namespace ams::kern {
 
             constexpr KThread *GetRunningThread(s32 core) const { return m_running_threads[core]; }
             constexpr u64 GetRunningThreadIdleCount(s32 core) const { return m_running_thread_idle_counts[core]; }
+            constexpr u64 GetRunningThreadSwitchCount(s32 core) const { return m_running_thread_switch_counts[core]; }
 
             void RegisterThread(KThread *thread);
             void UnregisterThread(KThread *thread);
@@ -344,7 +364,7 @@ namespace ams::kern {
                 R_RETURN(m_address_arbiter.SignalToAddress(address, signal_type, value, count));
             }
 
-            Result WaitAddressArbiter(uintptr_t address, ams::svc::ArbitrationType arb_type, s32 value, s64 timeout) {
+            Result WaitAddressArbiter(uintptr_t address, ams::svc::ArbitrationType arb_type, s64 value, s64 timeout) {
                 R_RETURN(m_address_arbiter.WaitForAddress(address, arb_type, value, timeout));
             }
 
@@ -358,7 +378,7 @@ namespace ams::kern {
 
                 /* Update the current page table. */
                 if (next_process) {
-                    next_process->GetPageTable().Activate(next_process->GetProcessId());
+                    next_process->GetPageTable().Activate(next_process->GetSlabIndex(), next_process->GetProcessId());
                 } else {
                     Kernel::GetKernelPageTable().Activate();
                 }

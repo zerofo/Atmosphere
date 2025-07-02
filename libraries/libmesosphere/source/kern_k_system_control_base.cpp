@@ -20,6 +20,13 @@
 
 namespace ams::kern {
 
+    namespace init {
+
+        /* TODO: Is this function name architecture specific? */
+        void StartOtherCore(const ams::kern::init::KInitArguments *init_args);
+
+    }
+
     /* Initialization. */
     size_t KSystemControlBase::Init::GetRealMemorySize() {
         return ams::kern::MainMemorySize;
@@ -32,17 +39,18 @@ namespace ams::kern {
     KPhysicalAddress KSystemControlBase::Init::GetKernelPhysicalBaseAddress(KPhysicalAddress base_address) {
         const size_t real_dram_size     = KSystemControl::Init::GetRealMemorySize();
         const size_t intended_dram_size = KSystemControl::Init::GetIntendedMemorySize();
-        if (intended_dram_size * 2 < real_dram_size) {
+        if (intended_dram_size * 2 <= real_dram_size) {
             return base_address;
         } else {
             return base_address + ((real_dram_size - intended_dram_size) / 2);
         }
     }
 
-    void KSystemControlBase::Init::GetInitialProcessBinaryLayout(InitialProcessBinaryLayout *out) {
+    void KSystemControlBase::Init::GetInitialProcessBinaryLayout(InitialProcessBinaryLayout *out, KPhysicalAddress kern_base_address) {
         *out = {
-            .address = GetInteger(KSystemControl::Init::GetKernelPhysicalBaseAddress(ams::kern::MainMemoryAddress)) + KSystemControl::Init::GetIntendedMemorySize() - InitialProcessBinarySizeMax,
-            ._08     = 0,
+            .address      = GetInteger(KSystemControl::Init::GetKernelPhysicalBaseAddress(ams::kern::MainMemoryAddress)) + KSystemControl::Init::GetIntendedMemorySize() - InitialProcessBinarySizeMax,
+            ._08          = 0,
+            .kern_address = GetInteger(kern_base_address),
         };
     }
 
@@ -68,20 +76,36 @@ namespace ams::kern {
         return 0;
     }
 
-    void KSystemControlBase::Init::CpuOn(u64 core_id, uintptr_t entrypoint, uintptr_t arg) {
+    void KSystemControlBase::Init::CpuOnImpl(u64 core_id, uintptr_t entrypoint, uintptr_t arg) {
         #if defined(ATMOSPHERE_ARCH_ARM64)
-        MESOSPHERE_INIT_ABORT_UNLESS((::ams::kern::arch::arm64::smc::CpuOn<0, false>(core_id, entrypoint, arg)) == 0);
+        MESOSPHERE_INIT_ABORT_UNLESS((::ams::kern::arch::arm64::smc::CpuOn<0>(core_id, entrypoint, arg)) == 0);
         #else
         AMS_INFINITE_LOOP();
         #endif
     }
 
+    void KSystemControlBase::Init::TurnOnCpu(u64 core_id, const ams::kern::init::KInitArguments *args) {
+        /* Get entrypoint. */
+        KPhysicalAddress entrypoint = Null<KPhysicalAddress>;
+        while (!cpu::GetPhysicalAddressReadable(std::addressof(entrypoint), reinterpret_cast<uintptr_t>(::ams::kern::init::StartOtherCore), true)) { /* ... */ }
+
+        /* Get arguments. */
+        KPhysicalAddress args_addr = Null<KPhysicalAddress>;
+        while (!cpu::GetPhysicalAddressReadable(std::addressof(args_addr), reinterpret_cast<uintptr_t>(args), true)) { /* ... */ }
+
+        /* Ensure cache is correct for the initial arguments. */
+        cpu::StoreDataCacheForInitArguments(args, sizeof(*args));
+
+        /* Turn on the cpu. */
+        KSystemControl::Init::CpuOnImpl(core_id, GetInteger(entrypoint), GetInteger(args_addr));
+    }
+
     /* Randomness for Initialization. */
     void KSystemControlBase::Init::GenerateRandom(u64 *dst, size_t count) {
-        if (AMS_UNLIKELY(!s_initialized_random_generator)) {
+        if (AMS_UNLIKELY(s_uninitialized_random_generator)) {
             const u64 seed = KHardwareTimer::GetTick();
             s_random_generator.Initialize(reinterpret_cast<const u32*>(std::addressof(seed)), sizeof(seed) / sizeof(u32));
-            s_initialized_random_generator = true;
+            s_uninitialized_random_generator = false;
         }
 
         for (size_t i = 0; i < count; ++i) {
@@ -90,50 +114,39 @@ namespace ams::kern {
     }
 
     u64 KSystemControlBase::Init::GenerateRandomRange(u64 min, u64 max) {
-        if (AMS_UNLIKELY(!s_initialized_random_generator)) {
+        if (AMS_UNLIKELY(s_uninitialized_random_generator)) {
             const u64 seed = KHardwareTimer::GetTick();
             s_random_generator.Initialize(reinterpret_cast<const u32*>(std::addressof(seed)), sizeof(seed) / sizeof(u32));
-            s_initialized_random_generator = true;
+            s_uninitialized_random_generator = false;
         }
 
         return KSystemControlBase::GenerateUniformRange(min, max, []() ALWAYS_INLINE_LAMBDA -> u64 { return s_random_generator.GenerateRandomU64(); });
     }
 
     /* System Initialization. */
-    void KSystemControlBase::InitializePhase1(bool skip_target_system) {
+    void KSystemControlBase::ConfigureKTargetSystem() {
+        /* By default, use the default config set in the KTargetSystem header. */
+    }
+
+    void KSystemControlBase::InitializePhase1() {
+        /* Enable KTargetSystem. */
+        {
+            KTargetSystem::SetInitialized();
+        }
+
+        /* Initialize random and resource limit. */
+        KSystemControlBase::InitializePhase1Base(KHardwareTimer::GetTick());
+    }
+
+    void KSystemControlBase::InitializePhase1Base(u64 seed) {
         /* Initialize the rng, if we somehow haven't already. */
-        if (AMS_UNLIKELY(!s_initialized_random_generator)) {
-            const u64 seed = KHardwareTimer::GetTick();
+        if (AMS_UNLIKELY(s_uninitialized_random_generator)) {
             s_random_generator.Initialize(reinterpret_cast<const u32*>(std::addressof(seed)), sizeof(seed) / sizeof(u32));
-            s_initialized_random_generator = true;
+            s_uninitialized_random_generator = false;
         }
 
-        /* Configure KTargetSystem, if we haven't already by an implementation SystemControl. */
-        if (!skip_target_system) {
-            /* Set IsDebugMode. */
-            {
-                KTargetSystem::SetIsDebugMode(true);
-
-                /* If debug mode, we want to initialize uart logging. */
-                KTargetSystem::EnableDebugLogging(true);
-                KDebugLog::Initialize();
-            }
-
-            /* Set Kernel Configuration. */
-            {
-                KTargetSystem::EnableDebugMemoryFill(false);
-                KTargetSystem::EnableUserExceptionHandlers(true);
-                KTargetSystem::EnableDynamicResourceLimits(true);
-                KTargetSystem::EnableUserPmuAccess(false);
-            }
-
-            /* Set Kernel Debugging. */
-            {
-                /* NOTE: This is used to restrict access to SvcKernelDebug/SvcChangeKernelTraceState. */
-                /* Mesosphere may wish to not require this, as we'd ideally keep ProgramVerification enabled for userland. */
-                KTargetSystem::EnableKernelDebugging(true);
-            }
-        }
+        /* Initialize debug logging. */
+        KDebugLog::Initialize();
 
         /* System ResourceLimit initialization. */
         {
@@ -144,6 +157,19 @@ namespace ams::kern {
 
             /* Set the initial limits. */
             const auto [total_memory_size, kernel_memory_size] = KMemoryLayout::GetTotalAndKernelMemorySizes();
+
+            /* Update 39-bit address space infos. */
+            {
+                /* Heap should be equal to the total memory size, minimum 8 GB, maximum 32 GB. */
+                /* Alias should be equal to 8 * heap size, maximum 128 GB. */
+                const size_t heap_size  = std::max(std::min(util::AlignUp(total_memory_size, 1_GB), 32_GB), 8_GB);
+                const size_t alias_size = std::min(heap_size * 8, 128_GB);
+
+                /* Set the address space sizes. */
+                KAddressSpaceInfo::SetAddressSpaceSize(39, KAddressSpaceInfo::Type_Heap,  heap_size);
+                KAddressSpaceInfo::SetAddressSpaceSize(39, KAddressSpaceInfo::Type_Alias, alias_size);
+            }
+
             const auto &slab_counts = init::GetSlabResourceCounts();
             MESOSPHERE_R_ABORT_UNLESS(sys_res_limit.SetLimitValue(ams::svc::LimitableResource_PhysicalMemoryMax,      total_memory_size));
             MESOSPHERE_R_ABORT_UNLESS(sys_res_limit.SetLimitValue(ams::svc::LimitableResource_ThreadCountMax,         slab_counts.num_KThread));

@@ -53,7 +53,8 @@ namespace ams::settings {
         /* 4.0.0+ */
         Language_SimplifiedChinese,
         Language_TraditionalChinese,
-
+        /* 10.1.0+ */
+        Language_PortugueseBr,
         Language_Count,
     };
 
@@ -92,6 +93,8 @@ namespace ams::settings {
             /* 4.0.0+ */
             AMS_MATCH_LANGUAGE(SimplifiedChinese,       "zh-Hans")
             AMS_MATCH_LANGUAGE(TraditionalChinese,      "zh-Hant")
+            /* 10.1.0+ */
+            AMS_MATCH_LANGUAGE(PortugueseBr,            "pt-BR")
             #undef AMS_MATCH_LANGUAGE
             else { static_assert(Lang != Language_Japanese); }
         }
@@ -116,6 +119,8 @@ namespace ams::settings {
                 /* 4.0.0+ */
                 EncodeLanguage<Language_SimplifiedChinese>(),
                 EncodeLanguage<Language_TraditionalChinese>(),
+                /* 10.1.0+ */
+                EncodeLanguage<Language_PortugueseBr>(),
             };
             return EncodedLanguages[language];
         }
@@ -156,7 +161,11 @@ namespace ams::settings {
     }
 
     constexpr inline bool IsValidLanguageCodeDeprecated(const LanguageCode &lc) {
-        return impl::IsValidLanguageCode(lc, std::make_index_sequence<Language_Count - 2>{});
+        return impl::IsValidLanguageCode(lc, std::make_index_sequence<Language_Count - 3>{});
+    }
+
+    constexpr inline bool IsValidLanguageCodeDeprecated2(const LanguageCode &lc) {
+        return impl::IsValidLanguageCode(lc, std::make_index_sequence<Language_Count - 1>{});
     }
 
     constexpr inline bool IsValidLanguageCode(const LanguageCode &lc) {
@@ -234,5 +243,32 @@ namespace ams::settings {
     constexpr inline bool operator>(const FirmwareVersion &lhs, const FirmwareVersion &rhs) {
         return !(lhs <= rhs);
     }
+
+    struct BluetoothDevicesSettings : public sf::LargeData {
+        u8 address[0x6];
+        char name[0x20];
+        u8 class_of_device[0x3];
+        u8 link_key[0x10];
+        u8 link_key_present;
+        u16 version;
+        u32 trusted_services;
+        u16 vid;
+        u16 pid;
+        u8 sub_class;
+        u8 attribute_mask;
+        u16 descriptor_length;
+        u8 descriptor[0x80];
+        u8 key_type;
+        u8 device_type;
+        u16 brr_size;
+        u8 brr[0x9];
+        u8 reserved0;
+        char name2[0xF9];
+        u8 reserved1[0x31];
+    };
+
+    #if defined(ATMOSPHERE_OS_HORIZON)
+    static_assert(sizeof(BluetoothDevicesSettings) == sizeof(::SetSysBluetoothDevicesSettings));
+    #endif
 
 }

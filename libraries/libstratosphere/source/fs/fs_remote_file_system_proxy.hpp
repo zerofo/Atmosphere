@@ -56,10 +56,13 @@ namespace ams::fs {
                 AMS_ABORT("TODO");
             }
 
+            Result OpenFileSystemWithIdObsolete(ams::sf::Out<ams::sf::SharedPointer<fssrv::sf::IFileSystem>> out, const fssrv::sf::FspPath &path, u64 program_id, u32 type) {
+                R_RETURN(this->OpenFileSystemWithId(out, path, fs::ContentAttributes_None, program_id, type));
+            }
 
-            Result OpenFileSystemWithId(ams::sf::Out<ams::sf::SharedPointer<fssrv::sf::IFileSystem>> out, const fssrv::sf::FspPath &path, u64 program_id, u32 type) {
+            Result OpenFileSystemWithId(ams::sf::Out<ams::sf::SharedPointer<fssrv::sf::IFileSystem>> out, const fssrv::sf::FspPath &path, fs::ContentAttributes attr, u64 program_id, u32 type) {
                 ::FsFileSystem fs;
-                R_TRY(fsOpenFileSystemWithId(std::addressof(fs), program_id, static_cast<::FsFileSystemType>(type), path.str));
+                R_TRY(fsOpenFileSystemWithId(std::addressof(fs), program_id, static_cast<::FsFileSystemType>(type), path.str, static_cast<::FsContentAttributes>(static_cast<u8>(attr))));
 
                 out.SetValue(ObjectFactory::CreateSharedEmplaced<fssrv::sf::IFileSystem, fssrv::impl::RemoteFileSystem>(fs));
                 R_SUCCEED();
@@ -261,7 +264,11 @@ namespace ams::fs {
                 AMS_ABORT("TODO");
             }
 
-            Result OpenDataStorageByPath(ams::sf::Out<ams::sf::SharedPointer<fssrv::sf::IStorage>> out, const fssrv::sf::FspPath &path, u32 type) {
+            Result OpenDataStorageByPathObsolete(ams::sf::Out<ams::sf::SharedPointer<fssrv::sf::IStorage>> out, const fssrv::sf::FspPath &path, u32 type) {
+                AMS_ABORT("TODO");
+            }
+
+            Result OpenDataStorageByPath(ams::sf::Out<ams::sf::SharedPointer<fssrv::sf::IStorage>> out, const fssrv::sf::FspPath &path, fs::ContentAttributes attr, u32 type) {
                 AMS_ABORT("TODO");
             }
 
@@ -313,15 +320,23 @@ namespace ams::fs {
                 AMS_ABORT("TODO");
             }
 
+            Result GetProgramId(ams::sf::Out<ncm::ProgramId> out, const fssrv::sf::FspPath &path, fs::ContentAttributes attr) {
+                static_assert(sizeof(ncm::ProgramId) == sizeof(u64));
+                R_RETURN(fsGetProgramId(reinterpret_cast<u64 *>(out.GetPointer()), path.str, static_cast<::FsContentAttributes>(static_cast<u8>(attr))));
+            }
 
             Result GetRightsIdByPath(ams::sf::Out<fs::RightsId> out, const fssrv::sf::FspPath &path) {
                 static_assert(sizeof(RightsId) == sizeof(::FsRightsId));
                 R_RETURN(fsGetRightsIdByPath(path.str, reinterpret_cast<::FsRightsId *>(out.GetPointer())));
             }
 
-            Result GetRightsIdAndKeyGenerationByPath(ams::sf::Out<fs::RightsId> out, ams::sf::Out<u8> out_key_generation, const fssrv::sf::FspPath &path) {
+            Result GetRightsIdAndKeyGenerationByPathObsolete(ams::sf::Out<fs::RightsId> out, ams::sf::Out<u8> out_key_generation, const fssrv::sf::FspPath &path) {
+                R_RETURN(this->GetRightsIdAndKeyGenerationByPath(out, out_key_generation, path, fs::ContentAttributes_None))
+            }
+
+            Result GetRightsIdAndKeyGenerationByPath(ams::sf::Out<fs::RightsId> out, ams::sf::Out<u8> out_key_generation, const fssrv::sf::FspPath &path, fs::ContentAttributes attr) {
                 static_assert(sizeof(RightsId) == sizeof(::FsRightsId));
-                R_RETURN(fsGetRightsIdAndKeyGenerationByPath(path.str, out_key_generation.GetPointer(), reinterpret_cast<::FsRightsId *>(out.GetPointer())));
+                R_RETURN(fsGetRightsIdAndKeyGenerationByPath(path.str, static_cast<::FsContentAttributes>(static_cast<u8>(attr)), out_key_generation.GetPointer(), reinterpret_cast<::FsRightsId *>(out.GetPointer())));
             }
 
             Result SetCurrentPosixTimeWithTimeDifference(s64 posix_time, s32 time_difference) {
@@ -374,6 +389,11 @@ namespace ams::fs {
 
             /* ... */
 
+            Result GetAndClearErrorInfo(ams::sf::Out<fs::FileSystemProxyErrorInfo> out) {
+                static_assert(sizeof(fs::FileSystemProxyErrorInfo) == sizeof(::FsFileSystemProxyErrorInfo));
+                R_RETURN(::fsGetAndClearErrorInfo(reinterpret_cast<::FsFileSystemProxyErrorInfo *>(out.GetPointer())));
+            }
+
             Result RegisterProgramIndexMapInfo(const ams::sf::InBuffer &buffer, s32 count) {
                 AMS_ABORT("TODO");
             }
@@ -412,6 +432,11 @@ namespace ams::fs {
 
             Result OpenRegisteredUpdatePartition(ams::sf::Out<ams::sf::SharedPointer<fssrv::sf::IFileSystem>> out) {
                 AMS_ABORT("TODO");
+            }
+
+            Result GetAndClearMemoryReportInfo(ams::sf::Out<fs::MemoryReportInfo> out) {
+                static_assert(sizeof(fs::MemoryReportInfo) == sizeof(::FsMemoryReportInfo));
+                R_RETURN(::fsGetAndClearMemoryReportInfo(reinterpret_cast<::FsMemoryReportInfo *>(out.GetPointer())));
             }
 
             /* ... */

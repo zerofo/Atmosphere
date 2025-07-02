@@ -1,63 +1,41 @@
 name: NX_CI
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - master
   release:
     types: [published]
-jobs:
-  build_NX:
-      runs-on: ubuntu-latest
-    
-      steps:
-  
-        - name: Space cleanup
-          env:
-            DEBIAN_FRONTEND: noninteractive
-          run: |
-            sudo rm -rf /usr/share/dotnet /etc/mysql /etc/php /etc/apt/sources.list.d
-            sudo -E apt-get -y purge azure-cli ghc* zulu* llvm* firefox google* dotnet* powershell openjdk* mysql* php* android*
-   
-            sudo -E apt-get -y autoremove --purge
-            sudo -E apt-get clean
-            df -h
-        - name: Extract owner and repo
-          uses: jungwinter/split@v1
-          id: repo
-          with:
-            seperator: /
-            msg: ${{ github.repository }}
-        - name: Checkout
-          uses: actions/checkout@v3
-          with:
-            ref: master
-            submodules: recursive
-        - name: Use Docker Build
-          uses: actions-hub/docker/cli@master
-          env:
-              SKIP_LOGIN: true
-        - run: | 
-               git clone --recursive https://github.com/zerofo/Atmosphere
-               cd Atmosphere
-               docker run -t --rm --name builder -v `pwd`:`pwd` -w `pwd` zerofo/ns_dev:0.9b  make all -j4 
-               
-        - name: Upload file
-          uses: actions/upload-artifact@v3
-          with:
-            path: ./out/*zip
-        - name: Upload binaries to release
-          uses: svenstaro/upload-release-action@v2
-          with:
-            repo_token: ${{ secrets.repo_token }}
-            file: ./out/*zip
-            tag: ${{ github.ref }}
-            overwrite: true
-            file_glob: true
 
-        - name: Remove old artifacts
-          uses: c-hive/gha-remove-artifacts@v1
-          with:
-            age: '5 minute'
-            # skip-tags: true
-            # skip-recent: 1
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: devkitpro/devkita64:latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@master
+      with:
+        ref: master
+        submodules: recursive
+    - name: Build
+      run: |
+        git config --global --add safe.directory `pwd`;
+        pacman -S devkitA64 libnx switch-tools switch-mesa switch-glad switch-glm
+        cd Atmosphere
+        make -j$(nproc) 
+    # - name: Upload file
+    #   uses: actions/upload-artifact@v4
+    #   with:
+    #     name: ${{ steps.repo.outputs._1 }} 
+    #     path: 
+    # - name: Upload binaries to release
+    #   uses: svenstaro/upload-release-action@v2
+    #   with:
+    #     repo_token: ${{ secrets.release_token }}
+    #     file: 
+    #     tag: ${{ github.ref }}
+    #     overwrite: true
+    #     file_glob: true

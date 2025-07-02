@@ -23,7 +23,7 @@ jobs:
     - name: Build
       run: |
         git config --global --add safe.directory `pwd`;
-        echo y|dkp-pacman -Syu devkitA64 libnx switch-tools switch-mesa switch-glad switch-glm
+        echo y|dkp-pacman -Syu devkitA64 libnx switch-dev deko3d devkita64-cmake switch-cmake switch-pkg-config devkitA64 devkitA64-gdb switch-tools general-tools uam devkitARM devkitARM-gdb devkitarm-rules switch-portlibs devkitARM switch-mesa switch-glad switch-glm
         pwd
         make -j$(nproc) 
     # - name: Upload file

@@ -23,7 +23,7 @@ jobs:
     - name: Build
       run: |
         git config --global --add safe.directory `pwd`;
-        dkp-pacman -Syu devkitA64 libnx switch-tools switch-mesa switch-glad switch-glm
+        echo y|dkp-pacman -Syu devkitA64 libnx switch-tools switch-mesa switch-glad switch-glm
         cd Atmosphere
         make -j$(nproc) 
     # - name: Upload file

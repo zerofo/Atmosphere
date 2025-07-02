@@ -24,7 +24,7 @@ jobs:
       run: |
         git config --global --add safe.directory `pwd`;
         echo y|dkp-pacman -Syu devkitA64 libnx switch-tools switch-mesa switch-glad switch-glm
-        cd Atmosphere
+        pwd
         make -j$(nproc) 
     # - name: Upload file
     #   uses: actions/upload-artifact@v4

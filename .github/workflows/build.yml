@@ -32,7 +32,7 @@ jobs:
         git clone --depth 1 https://github.com/SciresM/hactool  --recursive && git config --global --add safe.directory hactool; cd hactool && cp config.mk.template config.mk && make && chmod +x hactool
         export PATH=$PATH:$(pwd)/hactool
         cd ../
-        make
+        sudo -E make
     # - name: Upload file
     #   uses: actions/upload-artifact@v4
     #   with:

@@ -23,7 +23,7 @@ jobs:
     - name: Build
       run: |
         apt update 
-        apt install python3-pip
+        apt install -y python3-pip
         pip install lz4
         git config --global --add safe.directory `pwd`;
         git submodule update --init --recursive

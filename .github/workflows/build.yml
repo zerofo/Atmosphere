@@ -27,14 +27,12 @@ jobs:
         pip install lz4
         git config --global --add safe.directory `pwd`;
         git submodule update --init --recursive
-        dkp-pacman -Sy --noconfirm
         dkp-pacman -Syu --noconfirm
-        dkp-pacman -Sy --needed --noconfirm switch-dev switch-glm switch-libjpeg-turbo devkitARM devkitarm-rules switch-glfw switch-freetype switch-libconfig switch-zlib switch-mbedtls  switch-curl devkitA64 libnx switch-tools  switch-bzip2  switch-libwebp switch-sdl2 switch-sdl2_gfx switch-sdl2_image switch-sdl2_ttf switch-libpng switch-mesa devkit-env devkitpro-keyring general-tools  switch-libdrm_nouveau switch-libjpeg-turbo switch-mpg123  switch-zziplib
         dkp-pacman -Syu --noconfirm switch-dev deko3d devkita64-cmake switch-cmake switch-pkg-config devkitA64 devkitA64-gdb switch-tools general-tools uam devkitARM devkitARM-gdb devkitarm-rules switch-portlibs devkitARM
-        git clone --depth 1 https://github.com/SciresM/hactool --recursive && git config --global --add safe.directory hactool; cd hactool && cp config.mk.template config.mk && make
+        git clone --depth 1 https://github.com/SciresM/hactool  --recursive && git config --global --add safe.directory hactool; cd hactool && cp config.mk.template config.mk && make && chmod +x hactool
         export PATH=$PATH:$(pwd)/hactool
         cd ../
-        make all -j$(nproc) 
+        make
     # - name: Upload file
     #   uses: actions/upload-artifact@v4
     #   with:

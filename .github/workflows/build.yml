@@ -23,6 +23,7 @@ jobs:
     - name: Build
       run: |
         git config --global --add safe.directory `pwd`;
+        git submodule update --init --recursive
         echo -e "\n\n\n\n"|dkp-pacman -Syu switch-dev deko3d devkita64-cmake switch-cmake switch-pkg-config devkitA64 devkitA64-gdb switch-tools general-tools uam devkitARM devkitARM-gdb devkitarm-rules switch-portlibs devkitARM
         make all -j$(nproc) 
     # - name: Upload file

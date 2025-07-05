@@ -61,9 +61,9 @@ dist-no-debug: package3 $(CURRENT_DIRECTORY)/$(ATMOSPHERE_OUT_DIR)
 	$(eval DIST_DIR = $(CURRENT_DIRECTORY)/$(ATMOSPHERE_OUT_DIR)/atmosphere-$(ATMOSPHERE_VERSION))
 	rm -rf $(CURRENT_DIRECTORY)/$(ATMOSPHERE_OUT_DIR)/*
 	rm -rf $(DIST_DIR)
-	mkdir $(DIST_DIR)
-	mkdir $(DIST_DIR)/atmosphere
-	mkdir $(DIST_DIR)/switch
+	mkdir -p $(DIST_DIR)
+	mkdir -p $(DIST_DIR)/atmosphere
+	mkdir -p $(DIST_DIR)/switch
 	mkdir -p $(DIST_DIR)/atmosphere/fatal_errors
 	mkdir -p $(DIST_DIR)/atmosphere/config_templates
 	mkdir -p $(DIST_DIR)/atmosphere/config

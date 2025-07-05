@@ -18,7 +18,7 @@ ATMOSPHERE_VERSION := $(ATMOSPHERE_MAJOR_VERSION).$(ATMOSPHERE_MINOR_VERSION).$(
 dist: dist-no-debug
 	$(eval DIST_DIR = $(CURRENT_DIRECTORY)/$(ATMOSPHERE_OUT_DIR)/atmosphere-$(ATMOSPHERE_VERSION)-debug)
 	rm -rf $(DIST_DIR)
-	mkdir $(DIST_DIR)
+	mkdir -p $(DIST_DIR)
 	cp $(CURRENT_DIRECTORY)/fusee/loader_stub/$(ATMOSPHERE_BOOT_OUT_DIR)/loader_stub.elf $(DIST_DIR)/fusee-loader-stub.elf
 	cp $(CURRENT_DIRECTORY)/fusee/program/$(ATMOSPHERE_BOOT_OUT_DIR)/program.elf $(DIST_DIR)/fusee-program.elf
 	cp $(CURRENT_DIRECTORY)/exosphere/loader_stub/$(ATMOSPHERE_OUT_DIR)/loader_stub.elf $(DIST_DIR)/exosphere-loader-stub.elf

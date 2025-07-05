@@ -34,9 +34,9 @@ jobs:
         cd ../
         export DEVKITPRO=/opt/devkitpro
         cd troposphere/haze
-        make -j
+        make -j4
         cd ../..
-        make -f atmosphere.mk dist-no-debug -j
+        make -f atmosphere.mk dist-no-debug -j4
         ls out
     - uses: actions/upload-artifact@v4
       with:

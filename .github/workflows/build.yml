@@ -41,7 +41,9 @@ jobs:
     - uses: actions/upload-artifact@v4
       with:
           name: release
-          path: ${{ github.workspace }}/out/nintendo_nx_arm64_armv8a
+          path: |
+           ${{ github.workspace }}/out/nintendo_nx_arm64_armv8a
+           ${{ github.workspace }}/out/*.zip
     # - name: Upload file
     #   uses: actions/upload-artifact@v4
     #   with:

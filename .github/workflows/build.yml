@@ -36,7 +36,7 @@ jobs:
         cd troposphere/haze
         make -j4
         cd ../..
-        make -f atmosphere.mk -j4
+        make -f atmosphere.mk all -j4
         ls out
     - uses: actions/upload-artifact@v4
       with:

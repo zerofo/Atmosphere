@@ -23,7 +23,7 @@ jobs:
     - name: Build
       run: |
         apt update 
-        apt install -y python3-pip
+        apt install -y python3-pip tree
         pip install lz4
         git config --global --add safe.directory `pwd`;
         git submodule update --init --recursive
@@ -37,7 +37,7 @@ jobs:
         sudo -E make -j4
         cd ../..
         sudo -E make -j4
-        ls out
+        tree out
     - uses: actions/upload-artifact@v4
       with:
           name: release
@@ -47,7 +47,7 @@ jobs:
     - name: Upload binaries to release
       uses: svenstaro/upload-release-action@master
       with:
-        repo_token: ${{ secrets.release_token }}
+        repo_token: ${{ secrets.repo_token }}
         file: ${{ github.workspace }}/out/nintendo_nx_arm64_armv8a/release/*/*zip
         tag: ${{ github.ref }}
         overwrite: true

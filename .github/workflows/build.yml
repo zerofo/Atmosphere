@@ -37,7 +37,7 @@ jobs:
         sudo -E make -j4
         cd ../..
         sudo -E make -j4
-        mv ${{ github.workspace }}/out/nintendo_nx_arm64_armv8a/release/*/master-*-dirty.zip ${{ github.workspace }}/out/nintendo_nx_arm64_armv8a/release/*/Atmosphere.zip
+        mv out/nintendo_nx_arm64_armv8a/release/*/master-*-dirty.zip ${{ github.workspace }}/out/nintendo_nx_arm64_armv8a/release/*/Atmosphere.zip
         tree out
     - uses: actions/upload-artifact@v4
       with:

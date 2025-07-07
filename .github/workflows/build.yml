@@ -37,19 +37,19 @@ jobs:
         sudo -E make -j4
         cd ../..
         sudo -E make -j4
-        mv out/nintendo_nx_arm64_armv8a/release/*/master-*-dirty.zip ${{ github.workspace }}/out/nintendo_nx_arm64_armv8a/release/*/Atmosphere.zip
+        mv out/nintendo_nx_arm64_armv8a/release/*/master-*-dirty.zip out/Atmosphere.zip
         tree out
     - uses: actions/upload-artifact@v4
       with:
           name: release
-          path: ${{ github.workspace }}/out/nintendo_nx_arm64_armv8a/release/*/*zip
+          path: out/Atmosphere.zip
           # /__w/Atmosphere/Atmosphere/out/nintendo_nx_arm64_armv8a/release/atmosphere-1.9.1-heads/master-0e438ca-dirty
 
     - name: Upload binaries to release
       uses: svenstaro/upload-release-action@master
       with:
         repo_token: ${{ secrets.repo_token }}
-        file: ${{ github.workspace }}/out/nintendo_nx_arm64_armv8a/release/*/*zip
+        file: out/Atmosphere.zip
         tag: ${{ github.ref }}
         overwrite: true
         file_glob: true

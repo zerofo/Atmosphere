@@ -42,7 +42,7 @@ jobs:
       with:
           name: release
           path: |
-           ${{ github.workspace }}/out/nintendo_nx_arm64_armv8a/*dist
+           ${{ github.workspace }}/out/nintendo_nx_arm64_armv8a/*dirty
     # - name: Upload file
     #   uses: actions/upload-artifact@v4
     #   with:

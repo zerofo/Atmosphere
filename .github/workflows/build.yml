@@ -41,18 +41,14 @@ jobs:
     - uses: actions/upload-artifact@v4
       with:
           name: release
-          path: |
-           ${{ github.workspace }}/out/nintendo_nx_arm64_armv8a/*dirty
-    # - name: Upload file
-    #   uses: actions/upload-artifact@v4
-    #   with:
-    #     name: ${{ steps.repo.outputs._1 }} 
-    #     path: 
-    # - name: Upload binaries to release
-    #   uses: svenstaro/upload-release-action@v2
-    #   with:
-    #     repo_token: ${{ secrets.release_token }}
-    #     file: 
-    #     tag: ${{ github.ref }}
-    #     overwrite: true
-    #     file_glob: true
+          path: ${{ github.workspace }}/out/nintendo_nx_arm64_armv8a/release/*/*zip
+          # /__w/Atmosphere/Atmosphere/out/nintendo_nx_arm64_armv8a/release/atmosphere-1.9.1-heads/master-0e438ca-dirty
+
+    - name: Upload binaries to release
+      uses: svenstaro/upload-release-action@master
+      with:
+        repo_token: ${{ secrets.release_token }}
+        file: ${{ github.workspace }}/out/nintendo_nx_arm64_armv8a/release/*/*zip
+        tag: ${{ github.ref }}
+        overwrite: true
+        file_glob: true

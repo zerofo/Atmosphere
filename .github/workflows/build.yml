@@ -24,7 +24,7 @@ jobs:
       run: |
         sudo -E apt update 
         sudo -E apt install -y python3-pip tree
-        sudo -E pip install lz4
+        sudo -E pip install lz4 --break-system-packages
         sudo -E git config --global --add safe.directory `pwd`;
         sudo -E git submodule update --init --recursive
         sudo -E dkp-pacman -Syu --noconfirm
